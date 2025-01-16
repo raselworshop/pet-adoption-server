@@ -30,6 +30,7 @@ async function run() {
 
     const db = client.db('pet_adoption')
     const usersCollection = db.collection('users')
+    const petsCollection = db.collection('pets')
 
     app.post('/users', async (req, res) => {
         const user = req.body;
