@@ -33,15 +33,34 @@ async function run() {
     const petsCollection = db.collection('pets')
 
     app.post('/users', async (req, res) => {
-        const user = req.body;
-        console.log('Received Data:', req.body)
-        const query = { email: user.email}
-        const isExist = await usersCollection.findOne(query)
-        if(isExist){
-            return res.send({message: "user already exist!", insertedId:null})
-        }
-        const result = await usersCollection.insertOne(user)
-        res.send(result)
+      const user = req.body;
+      console.log('Received Data:', req.body)
+      const query = { email: user.email }
+      const isExist = await usersCollection.findOne(query)
+      if (isExist) {
+        return res.send({ message: "user already exist!", insertedId: null })
+      }
+      const result = await usersCollection.insertOne(user)
+      res.send(result)
+    })
+
+    // all pets 
+    app.get('/pets', async (req, res) => {
+      const { search, category, page = 1, limit = 3 } = req.query;
+      const filter = { isAdopted: false }
+      if (search) {
+        filter.petName = new RegExp(search, 'i')
+      }
+      if (category) {
+        filter.petCategory = category
+      }
+      try {
+        const result = await petsCollection.find(filter).sort({ dateAdded: -1 }).skip((page - 1) * limit).limit(Number(limit)).toArray();
+        res.send(result);
+      } catch (err) { 
+        console.error(err); res.status(500).send("An error occurred while fetching pets."); 
+
+      }
     })
 
     // Send a ping to confirm a successful connection
@@ -55,9 +74,9 @@ async function run() {
 run().catch(console.dir);
 
 app.get('/', async (req, res) => {
-    res.send('Your Favorite Pet Adoption Server is running on')
+  res.send('Your Favorite Pet Adoption Server is running on')
 })
 
-app.listen(port, ()=>{
-    console.log(`Pet adoption server is running on:${port}`)
+app.listen(port, () => {
+  console.log(`Pet adoption server is running on:${port}`)
 })
