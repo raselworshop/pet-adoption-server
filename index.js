@@ -32,6 +32,7 @@ async function run() {
     const usersCollection = db.collection('users')
     const petsCollection = db.collection('pets')
     const adoptsCollection = db.collection('adopts')
+    const donationsCollection = db.collection('donations')
 
     // user collectin 
     app.post('/users', async (req, res) => {
@@ -64,6 +65,13 @@ async function run() {
 
       }
     })
+
+    // post a pet 
+    app.post('/pets', async (req, res) => {
+      const petData = req.body;
+      const result = await petsCollection.insertOne(petData)
+      res.status(200).send({result, message:"Successfully added"})
+    })
     //get a pet by id for details data
     app.get('/pets/:id', async (req, res) => {
       const id = req.params.id;
@@ -77,6 +85,22 @@ async function run() {
       const adoptionData = req.body;
       const result = await adoptsCollection.insertOne(adoptionData)
       res.send(result)
+    })
+    
+    // donation campaign page 
+    app.get('/donation-campaigns', async (req, res) => {
+      const {page = 1, limit=10 } = req.body;
+      const skip = (page-1) * limit
+      try {
+        const result = await donationsCollection.find({}).sort({date: -1}).skip(skip).limit(parseInt(limit)).toArray();
+        const totalCamp = await donationsCollection.estimatedDocumentCount();
+        res.status(200).send({
+          result,
+          hasMore: skip+result.length < totalCamp
+        })
+      } catch (error) {
+        res.status(500).send({message: "Failed to fetch campaigns data"})
+      }
     })
 
     // Send a ping to confirm a successful connection
