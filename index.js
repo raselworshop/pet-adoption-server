@@ -60,8 +60,8 @@ async function run() {
       try {
         const result = await petsCollection.find(filter).sort({ dateAdded: -1 }).skip((page - 1) * limit).limit(Number(limit)).toArray();
         res.send(result);
-      } catch (err) { 
-        console.error(err); res.status(500).send("An error occurred while fetching pets."); 
+      } catch (err) {
+        console.error(err); res.status(500).send("An error occurred while fetching pets.");
 
       }
     })
@@ -70,12 +70,12 @@ async function run() {
     app.post('/pets', async (req, res) => {
       const petData = req.body;
       const result = await petsCollection.insertOne(petData)
-      res.status(200).send({result, message:"Successfully added"})
+      res.status(200).send({ result, message: "Successfully added" })
     })
     //get a pet by id for details data
     app.get('/pets/:id', async (req, res) => {
       const id = req.params.id;
-      const query = {_id: new ObjectId(id)}
+      const query = { _id: new ObjectId(id) }
       const result = await petsCollection.findOne(query)
       res.send(result)
     })
@@ -86,20 +86,59 @@ async function run() {
       const result = await adoptsCollection.insertOne(adoptionData)
       res.send(result)
     })
-    
+
     // donation campaign page 
     app.get('/donation-campaigns', async (req, res) => {
-      const {page = 1, limit=10 } = req.body;
-      const skip = (page-1) * limit
+      const { page = 1, limit = 3 } = req.query;
+      const skip = (page - 1) * limit
       try {
-        const result = await donationsCollection.find({}).sort({date: -1}).skip(skip).limit(parseInt(limit)).toArray();
-        const totalCamp = await donationsCollection.estimatedDocumentCount();
+        const result = await donationsCollection.find({}).sort({ date: -1 }).skip(skip).limit(parseInt(limit)).toArray();
+        const totalCamp = await donationsCollection.estimatedDocumentCount(); 
         res.status(200).send({
           result,
-          hasMore: skip+result.length < totalCamp
+          hasMore: skip + result.length < totalCamp
         })
       } catch (error) {
-        res.status(500).send({message: "Failed to fetch campaigns data"})
+        res.status(500).send({ message: "Failed to fetch campaigns data" })
+      }
+    })
+
+    // get a specific donated details
+    app.get('/donation-campaigns/:id', async (req, res) => {
+      const id = req.params.id;
+      const filter = { _id: new ObjectId(id) }
+      const result = await donationsCollection.findOne(filter)
+      res.status(200).send(result) 
+    })
+
+    // make a donation
+    app.post('/donation-campaigns/donate', async (req, res) => {
+      const { campId, amount, donor } = req.body;
+      if (!campId || !amount || !donor) {
+        return res.status(400).send({ message: "Required Field Missing!" })
+      }
+      try {
+        const campFilter = { _id: new ObjectId(campId) }
+        const result = await donationsCollection.findOne(campFilter)
+        if (!result) {
+          return res.status(400).send({ message: "Campaign not found" })
+        }
+        const updateDon = await donationsCollection.updateOne(
+          campFilter,
+          {
+            $inc: { donatedAmount: amount },
+            $push: {
+              donors: { name: donor.name, email: donor.email, amount }
+            }
+          }
+        )
+        if (updateDon.modifiedCount === 0) {
+          return res.status(500).send({ message: "Failed to update donation!" })
+        }
+        res.status(200).send({ message: "Donation successfull!" })
+      } catch (error) {
+        console.error("Error processing donation:", error);
+        res.status(500).send({ message: "An error occurred during donation processing." });
       }
     })
 
