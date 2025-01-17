@@ -2,7 +2,7 @@ const express = require('express')
 const cors = require('cors')
 require('dotenv').config();
 const morgan = require('morgan')
-const { MongoClient, ServerApiVersion } = require('mongodb');
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 
 const app = express()
 const port = process.env.PORT || 5000;
@@ -31,7 +31,9 @@ async function run() {
     const db = client.db('pet_adoption')
     const usersCollection = db.collection('users')
     const petsCollection = db.collection('pets')
+    const adoptsCollection = db.collection('adopts')
 
+    // user collectin 
     app.post('/users', async (req, res) => {
       const user = req.body;
       console.log('Received Data:', req.body)
@@ -61,6 +63,20 @@ async function run() {
         console.error(err); res.status(500).send("An error occurred while fetching pets."); 
 
       }
+    })
+    //get a pet by id for details data
+    app.get('/pets/:id', async (req, res) => {
+      const id = req.params.id;
+      const query = {_id: new ObjectId(id)}
+      const result = await petsCollection.findOne(query)
+      res.send(result)
+    })
+
+    // adoption data to db 
+    app.post('/adopted', async (req, res) => {
+      const adoptionData = req.body;
+      const result = await adoptsCollection.insertOne(adoptionData)
+      res.send(result)
     })
 
     // Send a ping to confirm a successful connection
