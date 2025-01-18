@@ -1,6 +1,7 @@
 const express = require('express')
 const cors = require('cors')
 require('dotenv').config();
+const stripe = require('stripe')(process.env.PAYMENT_GATEWAY_SECRET_KEY)
 const morgan = require('morgan')
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 
@@ -14,6 +15,7 @@ app.use(express.json())
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.5hy3n.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`; //ok
 
+console.log('stripe secret key::', process.env.PAYMENT_GATEWAY_SECRET_KEY)
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
 const client = new MongoClient(uri, {
   serverApi: {
@@ -93,7 +95,7 @@ async function run() {
       const skip = (page - 1) * limit
       try {
         const result = await donationsCollection.find({}).sort({ date: -1 }).skip(skip).limit(parseInt(limit)).toArray();
-        const totalCamp = await donationsCollection.estimatedDocumentCount(); 
+        const totalCamp = await donationsCollection.estimatedDocumentCount();
         res.status(200).send({
           result,
           hasMore: skip + result.length < totalCamp
@@ -103,44 +105,89 @@ async function run() {
       }
     })
 
+    //randomly show donating 3card
+    app.get('/donation-campaigns/random', async (req, res) => {
+      const { limit = 3 } = req.query;
+      try {
+        const totalCount = await donationsCollection.countDocuments()
+        const randomSkip = Math.floor(Math.random() * totalCount)
+        const result = await donationsCollection.find({}).skip(randomSkip).limit(Number(limit)).toArray();
+        res.status(200).send(result)
+      } catch (error) {
+        res.status(500).send({ message: "Failed to fetch random campaigns" });
+      }
+    })
+
     // get a specific donated details
     app.get('/donation-campaigns/:id', async (req, res) => {
       const id = req.params.id;
       const filter = { _id: new ObjectId(id) }
       const result = await donationsCollection.findOne(filter)
-      res.status(200).send(result) 
+      res.status(200).send(result)
     })
 
     // make a donation
-    app.post('/donation-campaigns/donate', async (req, res) => {
-      const { campId, amount, donor } = req.body;
-      if (!campId || !amount || !donor) {
+    app.post("/create-payment-intent", async (req, res) => {
+      const { amount } = req.body;
+      if (!amount ) {
         return res.status(400).send({ message: "Required Field Missing!" })
       }
       try {
-        const campFilter = { _id: new ObjectId(campId) }
-        const result = await donationsCollection.findOne(campFilter)
-        if (!result) {
-          return res.status(400).send({ message: "Campaign not found" })
-        }
-        const updateDon = await donationsCollection.updateOne(
-          campFilter,
-          {
-            $inc: { donatedAmount: amount },
-            $push: {
-              donors: { name: donor.name, email: donor.email, amount }
-            }
-          }
-        )
-        if (updateDon.modifiedCount === 0) {
-          return res.status(500).send({ message: "Failed to update donation!" })
-        }
-        res.status(200).send({ message: "Donation successfull!" })
+        // carete payment intent 
+        const paymentIntent = await stripe.paymentIntents.create({
+          amount: parseInt( amount ) * 100,
+          currency: "usd",
+          payment_method_types: ["card"]
+        })
+
+        res.status(200).send({ 
+          clientSecret: paymentIntent.client_secret,
+          message: "client secret created successfully!" 
+        })
       } catch (error) {
-        console.error("Error processing donation:", error);
-        res.status(500).send({ message: "An error occurred during donation processing." });
+        console.error("Error creating payment intent:", error);
+        res.status(500).send({ message: "Failed to create payment intent!" });
       }
     })
+
+    // update donation 
+    app.post("/update-donation", async (req, res) => {
+      const { campaignId, amount, donorName, donorEmail, userEmail, transactionId } = req.body;
+  
+      if (!campaignId || !amount || !donorName || !donorEmail || !transactionId) {
+          return res.status(400).send({ message: "Required field missing!" });
+      }
+  
+      try {
+          const campFilter = { _id: new ObjectId(campaignId) };
+  
+          const updateDonate = await donationsCollection.updateOne(
+              campFilter,
+              {
+                  $inc: { donatedAmount: parseInt(amount) },
+                  $push: {
+                      donors: {
+                          name: donorName,
+                          email: donorEmail,
+                          donor: userEmail,
+                          amount,
+                          transactionId, 
+                      },
+                  },
+              }
+          );
+  
+          if (updateDonate.modifiedCount === 0) {
+              return res.status(500).send({ message: "Failed to update donation!" });
+          }
+  
+          res.status(200).send({ message: "Donation updated successfully!" });
+      } catch (error) {
+          console.error("Error updating donation:", error);
+          res.status(500).send({ message: "An error occurred during donation update." });
+      }
+  });
+  
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
