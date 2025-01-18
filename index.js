@@ -1,5 +1,6 @@
 const express = require('express')
 const cors = require('cors')
+const { v4: uuidv4 } = require('uuid');
 require('dotenv').config();
 const stripe = require('stripe')(process.env.PAYMENT_GATEWAY_SECRET_KEY)
 const morgan = require('morgan')
@@ -40,14 +41,45 @@ async function run() {
     app.post('/users', async (req, res) => {
       const user = req.body;
       console.log('Received Data:', req.body)
-      const query = { email: user.email }
+      const query = user.email ? { email: user.email } : { facebookId: user.facebookId };
+
       const isExist = await usersCollection.findOne(query)
       if (isExist) {
-        return res.send({ message: "user already exist!", insertedId: null })
+        return res.send({ message: "user already exist!", email: user.email, insertedId: null })
       }
+      if (!user.email && !user.facebookId) {
+        user.email = `guest_${uuidv4()}@anonymous.com`
+      }
+
       const result = await usersCollection.insertOne(user)
       res.send(result)
     })
+
+    // dami email udate option 
+    app.put('/users/:id', async (req, res) => {
+      const id = req.params.id;
+      const { email } = req.body;
+
+      if (!email) {
+        return res.status(400).send({ message: "Email is required for update!" });
+      }
+
+      try {
+        const filter = { _id: new ObjectId(id) };
+        const update = { $set: { email: email } };
+        const result = await usersCollection.updateOne(filter, update);
+
+        if (result.modifiedCount === 0) {
+          return res.status(404).send({ message: "User not found or already updated!" });
+        }
+
+        res.send({ message: "Email updated successfully!" });
+      } catch (error) {
+        console.error("Error updating email:", error);
+        res.status(500).send({ message: "Failed to update email!" });
+      }
+    });
+
 
     // all pets 
     app.get('/pets', async (req, res) => {
@@ -129,20 +161,20 @@ async function run() {
     // make a donation
     app.post("/create-payment-intent", async (req, res) => {
       const { amount } = req.body;
-      if (!amount ) {
+      if (!amount) {
         return res.status(400).send({ message: "Required Field Missing!" })
       }
       try {
         // carete payment intent 
         const paymentIntent = await stripe.paymentIntents.create({
-          amount: parseInt( amount ) * 100,
+          amount: parseInt(amount) * 100,
           currency: "usd",
           payment_method_types: ["card"]
         })
 
-        res.status(200).send({ 
+        res.status(200).send({
           clientSecret: paymentIntent.client_secret,
-          message: "client secret created successfully!" 
+          message: "client secret created successfully!"
         })
       } catch (error) {
         console.error("Error creating payment intent:", error);
@@ -153,41 +185,41 @@ async function run() {
     // update donation 
     app.post("/update-donation", async (req, res) => {
       const { campaignId, amount, donorName, donorEmail, userEmail, transactionId } = req.body;
-  
+
       if (!campaignId || !amount || !donorName || !donorEmail || !transactionId) {
-          return res.status(400).send({ message: "Required field missing!" });
+        return res.status(400).send({ message: "Required field missing!" });
       }
-  
+
       try {
-          const campFilter = { _id: new ObjectId(campaignId) };
-  
-          const updateDonate = await donationsCollection.updateOne(
-              campFilter,
-              {
-                  $inc: { donatedAmount: parseInt(amount) },
-                  $push: {
-                      donors: {
-                          name: donorName,
-                          email: donorEmail,
-                          donor: userEmail,
-                          amount,
-                          transactionId, 
-                      },
-                  },
-              }
-          );
-  
-          if (updateDonate.modifiedCount === 0) {
-              return res.status(500).send({ message: "Failed to update donation!" });
+        const campFilter = { _id: new ObjectId(campaignId) };
+
+        const updateDonate = await donationsCollection.updateOne(
+          campFilter,
+          {
+            $inc: { donatedAmount: parseInt(amount) },
+            $push: {
+              donors: {
+                name: donorName,
+                email: donorEmail,
+                donor: userEmail,
+                amount,
+                transactionId,
+              },
+            },
           }
-  
-          res.status(200).send({ message: "Donation updated successfully!" });
+        );
+
+        if (updateDonate.modifiedCount === 0) {
+          return res.status(500).send({ message: "Failed to update donation!" });
+        }
+
+        res.status(200).send({ message: "Donation updated successfully!" });
       } catch (error) {
-          console.error("Error updating donation:", error);
-          res.status(500).send({ message: "An error occurred during donation update." });
+        console.error("Error updating donation:", error);
+        res.status(500).send({ message: "An error occurred during donation update." });
       }
-  });
-  
+    });
+
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
