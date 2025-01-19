@@ -122,15 +122,56 @@ async function run() {
       res.send(result)
     })
 
-    // update a pet by id 
+    // update a pet by id
     app.put('/my-pets/:id', async (req, res) => {
+        const id = req.params.id;
+        const updatedData = req.body;
+    
+        if (!ObjectId.isValid(id)) {
+            return res.status(400).send({ error: 'Invalid pet ID' });
+        }
+    
+        if (!updatedData || Object.keys(updatedData).length === 0) {
+            return res.status(400).send({ error: 'No data provided for update' });
+        }
+    
+        const filter = { _id: new ObjectId(id) };
+        const updateDoc = { $set: updatedData };
+    
+        try {
+            const result = await petsCollection.updateOne(filter, updateDoc);
+    
+            if (result.modifiedCount === 0) {
+                return res.status(404).send({ error: 'Pet not found or no changes made' });
+            }
+    
+            res.status(200).send({ message: 'Pet updated successfully', result });
+        } catch (error) {
+            console.error('Error updating pet:', error);
+            res.status(500).send({ error: 'Failed to update pet. Please try again later.' });
+        }
+    });
+
+    // delete a pet by id
+    app.delete('/my-pets/:id', async (req, res) => {
       const id = req.params.id;
-      const updatedData = req.body;
       const filter = {_id: new ObjectId(id)}
-      const updateDoc= {$set: updatedData}
-      const result = await petsCollection.updateOne(filter, updateDoc)
+      const result = await petsCollection.deleteOne(filter)
       res.send(result)
     })
+
+    //status updating
+    app.patch('/my-pets/status/:id', async (req, res) => {
+      const id = req.params.id;
+      const query = {_id: new ObjectId(id)}
+      const update = {$set: {isAdopted:true}}
+      const result = await petsCollection.updateOne(query, update)
+      if(result.matchedCount===0){
+        return res.status(404).send({message:"Pet not fund"})
+      }
+      res.status(200).send(result)
+    })
+    
 
     // adoption data to db 
     app.post('/adopted', async (req, res) => {
