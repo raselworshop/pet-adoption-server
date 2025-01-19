@@ -55,7 +55,7 @@ async function run() {
       res.send(result)
     })
 
-    // dami email udate option 
+    // dami email udate option need to utilise on pudation
     app.put('/users/:id', async (req, res) => {
       const id = req.params.id;
       const { email } = req.body;
@@ -65,7 +65,7 @@ async function run() {
       }
 
       try {
-        const filter = { _id: new ObjectId(id) };
+        const filter = { facebookId: id };
         const update = { $set: { email: email } };
         const result = await usersCollection.updateOne(filter, update);
 
@@ -114,10 +114,36 @@ async function run() {
       res.send(result)
     })
 
+    // get pets by user email 
+    app.get('/my-pets/:email', async (req, res) => {
+      const email = req.params.email;
+      const query = {ownerMail: email}
+      const result = await petsCollection.find(query).toArray()
+      res.send(result)
+    })
+
+    // update a pet by id 
+    app.put('/my-pets/:id', async (req, res) => {
+      const id = req.params.id;
+      const updatedData = req.body;
+      const filter = {_id: new ObjectId(id)}
+      const updateDoc= {$set: updatedData}
+      const result = await petsCollection.updateOne(filter, updateDoc)
+      res.send(result)
+    })
+
     // adoption data to db 
     app.post('/adopted', async (req, res) => {
       const adoptionData = req.body;
       const result = await adoptsCollection.insertOne(adoptionData)
+      res.send(result)
+    })
+
+    //adopted return to client user based
+    app.get('/adopted', async (req, res) => {
+      const email = req.query.email;
+      const query = { adopterMail: email }
+      const result = await adoptsCollection.find(query).toArray()
       res.send(result)
     })
 
@@ -204,6 +230,7 @@ async function run() {
                 donor: userEmail,
                 amount,
                 transactionId,
+                date: new Date()
               },
             },
           }
