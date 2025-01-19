@@ -188,7 +188,20 @@ async function run() {
       res.send(result)
     })
 
-    // donation campaign page 
+    // donation campaign page
+    app.post('/donation-campaigns', async (req, res) => {
+      const campaignData = req.body;
+      if(!campaignData) return res.status(400).send({message: "Campaign data not recieved"})
+      try {
+        const result = await donationsCollection.insertOne(campaignData)
+        res.status(201).send(result)
+      } catch (error) {
+        console.log('Error creating campaign', error)
+        res.status(500).send({message: 'Failed to create campaign'})
+      }
+    })
+    
+    // get all campaings
     app.get('/donation-campaigns', async (req, res) => {
       const { page = 1, limit = 3 } = req.query;
       const skip = (page - 1) * limit
