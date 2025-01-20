@@ -117,45 +117,45 @@ async function run() {
     // get pets by user email 
     app.get('/my-pets/:email', async (req, res) => {
       const email = req.params.email;
-      const query = {ownerMail: email}
+      const query = { ownerMail: email }
       const result = await petsCollection.find(query).toArray()
       res.send(result)
     })
 
     // update a pet by id
     app.put('/my-pets/:id', async (req, res) => {
-        const id = req.params.id;
-        const updatedData = req.body;
-    
-        if (!ObjectId.isValid(id)) {
-            return res.status(400).send({ error: 'Invalid pet ID' });
+      const id = req.params.id;
+      const updatedData = req.body;
+
+      if (!ObjectId.isValid(id)) {
+        return res.status(400).send({ error: 'Invalid pet ID' });
+      }
+
+      if (!updatedData || Object.keys(updatedData).length === 0) {
+        return res.status(400).send({ error: 'No data provided for update' });
+      }
+
+      const filter = { _id: new ObjectId(id) };
+      const updateDoc = { $set: updatedData };
+
+      try {
+        const result = await petsCollection.updateOne(filter, updateDoc);
+
+        if (result.modifiedCount === 0) {
+          return res.status(404).send({ error: 'Pet not found or no changes made' });
         }
-    
-        if (!updatedData || Object.keys(updatedData).length === 0) {
-            return res.status(400).send({ error: 'No data provided for update' });
-        }
-    
-        const filter = { _id: new ObjectId(id) };
-        const updateDoc = { $set: updatedData };
-    
-        try {
-            const result = await petsCollection.updateOne(filter, updateDoc);
-    
-            if (result.modifiedCount === 0) {
-                return res.status(404).send({ error: 'Pet not found or no changes made' });
-            }
-    
-            res.status(200).send({ message: 'Pet updated successfully', result });
-        } catch (error) {
-            console.error('Error updating pet:', error);
-            res.status(500).send({ error: 'Failed to update pet. Please try again later.' });
-        }
+
+        res.status(200).send({ message: 'Pet updated successfully', result });
+      } catch (error) {
+        console.error('Error updating pet:', error);
+        res.status(500).send({ error: 'Failed to update pet. Please try again later.' });
+      }
     });
 
     // delete a pet by id
     app.delete('/my-pets/:id', async (req, res) => {
       const id = req.params.id;
-      const filter = {_id: new ObjectId(id)}
+      const filter = { _id: new ObjectId(id) }
       const result = await petsCollection.deleteOne(filter)
       res.send(result)
     })
@@ -163,15 +163,15 @@ async function run() {
     //status updating
     app.patch('/my-pets/status/:id', async (req, res) => {
       const id = req.params.id;
-      const query = {_id: new ObjectId(id)}
-      const update = {$set: {isAdopted:true}}
+      const query = { _id: new ObjectId(id) }
+      const update = { $set: { isAdopted: true } }
       const result = await petsCollection.updateOne(query, update)
-      if(result.matchedCount===0){
-        return res.status(404).send({message:"Pet not fund"})
+      if (result.matchedCount === 0) {
+        return res.status(404).send({ message: "Pet not fund" })
       }
       res.status(200).send(result)
     })
-    
+
 
     // adoption data to db 
     app.post('/adopted', async (req, res) => {
@@ -191,16 +191,16 @@ async function run() {
     // donation campaign page
     app.post('/donation-campaigns', async (req, res) => {
       const campaignData = req.body;
-      if(!campaignData) return res.status(400).send({message: "Campaign data not recieved"})
+      if (!campaignData) return res.status(400).send({ message: "Campaign data not recieved" })
       try {
         const result = await donationsCollection.insertOne(campaignData)
         res.status(201).send(result)
       } catch (error) {
         console.log('Error creating campaign', error)
-        res.status(500).send({message: 'Failed to create campaign'})
+        res.status(500).send({ message: 'Failed to create campaign' })
       }
     })
-    
+
     // get all campaings
     app.get('/donation-campaigns', async (req, res) => {
       const { page = 1, limit = 3 } = req.query;
@@ -238,18 +238,48 @@ async function run() {
       res.status(200).send(result)
     })
 
+    // update donation using id 
+    app.put('/donation-campaigns/:id', async (req, res) => {
+      const id = req.params.id;
+      const updatedData = req.body;
+
+      if (!ObjectId.isValid(id)) {
+        return res.status(400).send({ error: 'Invalid donation campaign ID' });
+      }
+
+      if (!updatedData || Object.keys(updatedData).length === 0) {
+        return res.status(400).send({ error: 'No data provided for update' });
+      }
+
+      const filter = { _id: new ObjectId(id) };
+      const updateDoc = { $set: updatedData };
+
+      try {
+        const result = await donationsCollection.updateOne(filter, updateDoc);
+
+        if (result.modifiedCount === 0) {
+          return res.status(404).send({ error: 'Campaign not found or no changes made' });
+        }
+
+        res.status(200).send(result);
+      } catch (error) {
+        console.error('Error updating camp:', error);
+        res.status(500).send({ error: 'Failed to update camp. Please try again later.' });
+      }
+    });
+
     //get campaign by user email
     app.get('/my-donation-campaigns/:email', async (req, res) => {
       const email = req.params.email;
-      const query = {ownerMail: email}
-      if(!query){
-        return res.status(404).send({message:"You don't added any campaigns, Please add one"})
+      const query = { ownerMail: email }
+      if (!query) {
+        return res.status(404).send({ message: "You don't added any campaigns, Please add one" })
       }
       try {
         const result = await donationsCollection.find(query).toArray()
         res.send(result)
       } catch (error) {
-        res.status(500).send({message:"Failed to fetch data"})
+        res.status(500).send({ message: "Failed to fetch data" })
       }
     })
 
@@ -257,17 +287,17 @@ async function run() {
     app.patch('/donation-campaign/pause/:id', async (req, res) => {
       const id = req.params.id;
       const { isPaused } = req.body;
-      const filter = { _id: new ObjectId(id)}
-      const updateDoc= { $set: {isPaused}}
+      const filter = { _id: new ObjectId(id) }
+      const updateDoc = { $set: { isPaused } }
       try {
-        const result = await donationsCollection.updateOne( filter, updateDoc )
-        if(result.matchedCount===0){
-          return res.status(404).send({message: "Donation campaign not found"})
+        const result = await donationsCollection.updateOne(filter, updateDoc)
+        if (result.matchedCount === 0) {
+          return res.status(404).send({ message: "Donation campaign not found" })
         }
         res.status(200).send(result)
       } catch (error) {
         console.log('eror from status route')
-        res.status(500).send({message:"Error updating campaign", error})
+        res.status(500).send({ message: "Error updating campaign", error })
       }
     })
 
