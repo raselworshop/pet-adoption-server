@@ -364,6 +364,70 @@ async function run() {
       }
     });
 
+    //get user donation
+    app.get('/donors/campaigns', async (req, res) => {
+      const {email } = req.query;
+      console.log("Email from donation query",email)
+
+      if(!email){
+        return res.status(400).send({message:"Email is required"})
+      }
+      try {
+        const result = await donationsCollection.aggregate([
+          {
+            $match: { donors: {$elemMatch: {email}}}
+          },
+          {
+            $project:{
+              _id:1,
+              petName: 1,
+              petImage: 1,
+              donors:{
+                $filter: {
+                  input:'$donors',
+                  as:'donor',
+                  cond:{$eq:[ '$$donor.email', email]}
+                }
+              }
+            }
+          }
+        ]).toArray();
+
+        res.send(result)
+      } catch (error) {
+        console.log(error)
+        res.status(500).send({message:" Error fetching donation", error})
+      }
+    })
+
+    // make a refund
+    app.post('/donors/refund', async (req, res) => {
+      const { id, email } = req.body;
+      if(!id || !email){
+        return res.status(400).send({message: "CAmpId and email are required!"})
+      }
+      const query = { _id: new ObjectId(id), 'donors.email': email }
+      try {
+        // retrieve specific donor's amount 
+        const camp = await donationsCollection.findOne(query, { projection:{'donors.$':1}})
+        if(!camp || !camp.donors.length){
+          return res.status(404).send({message: "Donation not fund"})
+        }
+        const { amount } = camp.donors[0]
+
+        // delete the donor
+        const updateDoc = { $pull:{donors:{email}}}
+        const result = await donationsCollection.updateOne(query, updateDoc)
+        if(result.modifiedCount===0){
+          return res.status(400).send({message:"Failed to proccess refund"})
+        }
+        res.send({message:"Refund processed successfully", amount})
+      } catch (error) {
+        console.log("Thw issue is from refund rout", error)
+        res.status(500).send({message: "error proccessing refund"})
+      }
+    })
+
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
