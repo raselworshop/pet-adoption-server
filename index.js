@@ -16,7 +16,6 @@ app.use(express.json())
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.5hy3n.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`; //ok
 
-console.log('stripe secret key::', process.env.PAYMENT_GATEWAY_SECRET_KEY)
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
 const client = new MongoClient(uri, {
   serverApi: {
@@ -83,7 +82,7 @@ async function run() {
 
     // all pets 
     app.get('/pets', async (req, res) => {
-      const { search, category, page = 1, limit = 4 } = req.query;
+      const { search, category, page = 1, limit = 10 } = req.query;
       const filter = { isAdopted: false }
       if (search) {
         filter.petName = new RegExp(search, 'i')
@@ -172,13 +171,166 @@ async function run() {
       res.status(200).send(result)
     })
 
-
-    // adoption data to db 
-    app.post('/adopted', async (req, res) => {
+    // request for adoption 
+    app.post('/request-adoption', async (req, res) => {
       const adoptionData = req.body;
-      const result = await adoptsCollection.insertOne(adoptionData)
-      res.send(result)
+      console.log(adoptionData)
+      const { petId, adopterName, adopterMail, adopterPhone, adopterAddress } = adoptionData;
+      if (!petId || !adopterName || !adopterMail || !adopterPhone || !adopterAddress) {
+        return res.status(400).send({ message: 'All fields are required.' });
+      }
+
+      try {
+        // check pet is available and isn't adopted 
+        const pet = await petsCollection.findOne({
+          _id: new ObjectId(petId),
+          isAdopted: false,
+        })
+        if (!pet) {
+          return res.status(404).send({ message: "Pet not found or already adopted" })
+        }
+
+        // Check if the same email holder has already requested adoption for this pet
+        const existingRequest = await adoptsCollection.findOne({
+          petId: new ObjectId(petId),
+          adopterMail: adopterMail,
+          status: 'Pending'
+        });
+
+        if (existingRequest) {
+          console.log(`User ${adopterMail} already has a pending request for pet ${pet.petName}`);
+
+          return res.status(400).send({ message: 'You have already requested to adopt this pet.' });
+        }
+
+        //caret adoption request to db
+        const adoptionRequ = {
+          petId,
+          petName: pet.petName,
+          petImage: pet.petImage,
+          adopterName,
+          adopterMail,
+          adopterPhone,
+          adopterAddress,
+          status: 'Pending',
+          requDate: new Date()
+        };
+        const result = await adoptsCollection.insertOne(adoptionRequ)
+        res.status(201).send({ message: 'Adoption request succussfull', result })
+      } catch (error) {
+        console.error('Error processing adoption request:', error);
+        res.status(500).send({ message: 'Failed to process adoption request.', error });
+      }
     })
+
+    // requested adoption status changer
+    app.patch('/adopted/status/:id', async (req, res) => {
+      const { status } = req.body;
+      const id = req.params.id;
+      if (!status || !['Accepted', 'Rejected'].includes(status)) {
+        return res.status(400).send({ message: 'Invalid status value' })
+      }
+
+      // update status here 
+      const query = { _id: new ObjectId(id) }
+      const update = { $set: { status } }
+      try {
+        const result = await adoptsCollection.updateOne(query, update)
+        if (result.modifiedCount === 0) {
+          return res.status(404).send({ message: "Adoption request not fount!" })
+        }
+        if (status === 'Accepted') {
+          const petUpdate = { $set: { isAdopted: true } }
+          await petsCollection.updateOne({ _id: new ObjectId(id) }, petUpdate)
+        }
+        res.status(200).send({ message: `Adoption request ${status.toLowerCase()} successfully` })
+      } catch (error) {
+        console.error('Error updating adoption status:', error);
+        res.status(500).send({ message: 'Failed to update adoption status.' });
+      }
+    })
+
+    // from user to owner request 
+    app.get('/adoptRequests/byOwnerMail/:posterEmail', async (req, res) => {
+      const { posterEmail } = req.params;
+      console.log('Full query object:', req.params);
+      console.log('posterEmail: ', posterEmail);
+
+      if (!posterEmail) {
+        return res.status(400).send({ message: 'Poster email is required.' });
+      }
+
+      try {
+        const query = { ownerMail: posterEmail };
+        const postedPets = await petsCollection.find(query).toArray();
+
+        if (postedPets.length === 0) {
+          return res.status(404).send({ message: 'No pets found posted by this user.' });
+        }
+
+        const petIds = postedPets.map(pet => pet._id.toString());
+        console.log('petIds: ', petIds);
+
+        const requests = await adoptsCollection.find({ petId: { $in: petIds } }).toArray();
+        console.log('requests: ', requests);
+
+        if (requests.length === 0) {
+          return res.status(404).send({ message: 'No adoption requests found for pets posted by this user.' });
+        }
+
+        res.status(200).send(requests);
+      } catch (error) {
+        console.error('Failed to fetch adoption requests:', error);
+        res.status(500).send({ message: 'Failed to fetch adoption requests.', error });
+      }
+    });
+
+    // user requested pets list 
+    app.get('/adopted/requests/:userEmail', async (req, res) => {
+      const email = req.params.userEmail;
+      console.log('Full query object:', req.params);
+      console.log('email:', email);
+
+      if (!email) {
+        return res.status(400).send({ message: 'Email is required' });
+      }
+
+      try {
+        const query = { adopterMail: email };
+        const requests = await adoptsCollection.find(query).toArray();
+
+        if (requests.length === 0) {
+          return res.status(404).send({ message: 'No adoption requests found for this pet by the provided email.' });
+        }
+
+        res.status(200).send(requests);
+      } catch (error) {
+        console.error('Failed to fetch adoption requests:', error);
+        res.status(500).send({ message: 'Failed to fetch adoption requests.', error });
+      }
+    });
+
+    // Cancel adoption request route
+    app.patch('/adopted/status/:id', async (req, res) => {
+      const { id } = req.params;
+      const { status } = req.body;
+
+      try {
+        const result = await adoptsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { status } }
+        );
+
+        if (result.modifiedCount === 0) {
+          return res.status(404).send({ message: 'Request not found or already updated.' });
+        }
+
+        res.status(200).send({ message: 'Request status updated successfully.' });
+      } catch (error) {
+        console.error('Failed to update request status:', error);
+        res.status(500).send({ message: 'Failed to update request status.', error });
+      }
+    });
 
     //adopted return to client user based
     app.get('/adopted', async (req, res) => {
@@ -366,29 +518,45 @@ async function run() {
 
     //get user donation
     app.get('/donors/campaigns', async (req, res) => {
-      const {email } = req.query;
-      console.log("Email from donation query",email)
+      const { email } = req.query;
+      console.log("Email from donation query", email)
 
-      if(!email){
-        return res.status(400).send({message:"Email is required"})
+      if (!email) {
+        return res.status(400).send({ message: "Email is required" })
       }
       try {
         const result = await donationsCollection.aggregate([
           {
-            $match: { donors: {$elemMatch: {email}}}
+            $match: { donors: { $elemMatch: { email } } }
           },
           {
-            $project:{
-              _id:1,
+            $project: {
+              _id: 1,
               petName: 1,
               petImage: 1,
-              donors:{
-                $filter: {
-                  input:'$donors',
-                  as:'donor',
-                  cond:{$eq:[ '$$donor.email', email]}
-                }
+              amount: {
+                $arrayElemAt: [{
+                  $map: {
+                    input: {
+                      $filter: {
+                        input: '$donors',
+                        as: 'donor',
+                        cond: { $eq: ['$$donor.email', email] }
+                      }
+                    },
+                    as: 'donor',
+                    in: '$$donor.amount'
+                  }
+                }, 0]
               }
+              // giving arrays need to update
+              // donors:{
+              //   $filter: {
+              //     input:'$donors',
+              //     as:'donor',
+              //     cond:{$eq:[ '$$donor.email', email]}
+              //   }
+              // }
             }
           }
         ]).toArray();
@@ -396,35 +564,35 @@ async function run() {
         res.send(result)
       } catch (error) {
         console.log(error)
-        res.status(500).send({message:" Error fetching donation", error})
+        res.status(500).send({ message: " Error fetching donation", error })
       }
     })
 
     // make a refund
     app.post('/donors/refund', async (req, res) => {
       const { id, email } = req.body;
-      if(!id || !email){
-        return res.status(400).send({message: "CAmpId and email are required!"})
+      if (!id || !email) {
+        return res.status(400).send({ message: "CAmpId and email are required!" })
       }
       const query = { _id: new ObjectId(id), 'donors.email': email }
       try {
         // retrieve specific donor's amount 
-        const camp = await donationsCollection.findOne(query, { projection:{'donors.$':1}})
-        if(!camp || !camp.donors.length){
-          return res.status(404).send({message: "Donation not fund"})
+        const camp = await donationsCollection.findOne(query, { projection: { 'donors.$': 1 } })
+        if (!camp || !camp.donors.length) {
+          return res.status(404).send({ message: "Donation not fund" })
         }
         const { amount } = camp.donors[0]
 
         // delete the donor
-        const updateDoc = { $pull:{donors:{email}}}
+        const updateDoc = { $pull: { donors: { email } } }
         const result = await donationsCollection.updateOne(query, updateDoc)
-        if(result.modifiedCount===0){
-          return res.status(400).send({message:"Failed to proccess refund"})
+        if (result.modifiedCount === 0) {
+          return res.status(400).send({ message: "Failed to proccess refund" })
         }
-        res.send({message:"Refund processed successfully", amount})
+        res.send({ message: "Refund processed successfully", amount })
       } catch (error) {
         console.log("Thw issue is from refund rout", error)
-        res.status(500).send({message: "error proccessing refund"})
+        res.status(500).send({ message: "error proccessing refund" })
       }
     })
 
