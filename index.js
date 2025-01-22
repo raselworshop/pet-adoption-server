@@ -1,5 +1,6 @@
 const express = require('express')
 const cors = require('cors')
+const jwt = require('jsonwebtoken')
 const { v4: uuidv4 } = require('uuid');
 require('dotenv').config();
 const stripe = require('stripe')(process.env.PAYMENT_GATEWAY_SECRET_KEY)
@@ -25,6 +26,16 @@ const client = new MongoClient(uri, {
   }
 });
 
+const checkBan = async (req, res, next) => {
+  const user = await usersCollection.findOne({ email: req.body.email });
+  if (user?.isBanned) {
+    return res.status(403).json({ message: 'Your account has been banned.' });
+  }
+  next();
+};
+module.exports = checkBan;
+
+
 async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
@@ -35,6 +46,130 @@ async function run() {
     const petsCollection = db.collection('pets')
     const adoptsCollection = db.collection('adopts')
     const donationsCollection = db.collection('donations')
+
+    app.post('/jwt', async (req, res) => {
+      const user = req.body;
+      const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '5h' })
+      res.send({ token })
+    })
+
+    const verifyToken = (req, res, next) => {
+      console.log('inside verify token', req.headers)
+      if (!req.headers.authorization) {
+        return res.status(401).send({ message: 'Unauthorized access' })
+      }
+      const token = req.headers.authorization.split(' ')[1];
+      jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (error, decoded) => {
+        if (error) {
+          return res.status(401).send({ message: "Unauthorized access" })
+        }
+        req.decoded = decoded;
+        next()
+      })
+    }
+
+    // use verifyAdmin after token verified
+    const verifyAdmin = async (req, res, next) => {
+      const email = req.decoded.email;
+      const query = { email: email}
+      const user = await usersCollection.findOne(query)
+      const isAdmin = user?.role === 'admin'
+      if(!isAdmin){
+        return res.status(403).send({message:"Forbidden access"})
+      }
+      next()
+    }
+
+    // Routes accessible by admins only
+    app.get('/users/admin/:email', verifyToken, async (req, res) => {
+      const email = req.params.email;
+      if (email !== req.decoded.email) {
+        return res.status(403).send({ message: "Forbidden access" })
+      }
+      const query = { email: email }
+      const user = await usersCollection.findOne(query)
+      let admin = false;
+      if (user) {
+        admin = user?.role === 'admin'
+      }
+      res.send({ admin });
+    });
+
+    app.patch('/users/make-admin/:id', verifyToken, verifyAdmin, async (req, res) => {
+      const id = req.params.id;
+
+      if (!ObjectId.isValid(id)) {
+        return res.status(400).send({ message: 'Invalid user ID' });
+      }
+
+      try {
+        const result = await usersCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { role: 'admin' } }
+        );
+
+        if (result.modifiedCount === 0) {
+          return res.status(404).send({ message: 'User not found.' });
+        }
+
+        res.status(200).send({ message: 'User promoted to admin successfully.' });
+      } catch (error) {
+        console.error('Failed to update user role:', error);
+        res.status(500).send({ message: 'Failed to update user role.' });
+      }
+    });
+
+    app.patch('/users/ban/:id', verifyToken, verifyAdmin, async (req, res) => {
+      const id = req.params.id;
+      try {
+        const result = await usersCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { banned: true } }
+        );
+
+        if (result.modifiedCount === 0) {
+          return res.status(404).send({ message: 'User not found.' });
+        }
+
+        res.status(200).send({ message: 'User banned successfully.' });
+      } catch (error) {
+        console.error('Failed to ban user:', error);
+        res.status(500).send({ message: 'Failed to ban user.' });
+      }
+    });
+    app.get('/users', verifyToken, verifyAdmin, async (req, res) => {
+      try {
+        const result = await usersCollection.find().toArray();
+        res.send(result);
+      } catch (err) {
+        console.error(err); res.status(500).send("An error occurred while fetching users.");
+      }
+    })
+    app.patch('/pets/status/:id', verifyToken, async (req, res) => {
+      const id = req.params.id;
+      const { isAdopted } = req.body;
+
+      if (!ObjectId.isValid(id)) {
+        return res.status(400).send({ error: 'Invalid pet ID' });
+      }
+
+      const filter = { _id: new ObjectId(id) };
+      const updateDoc = { $set: { isAdopted } };
+
+      try {
+        const result = await petsCollection.updateOne(filter, updateDoc);
+
+        if (result.modifiedCount === 0) {
+          return res.status(404).send({ error: 'Pet not found or no changes made' });
+        }
+
+        res.status(200).send({ message: 'Pet status updated successfully', result });
+      } catch (error) {
+        console.error('Error updating pet status:', error);
+        res.status(500).send({ error: 'Failed to update pet status. Please try again later.' });
+      }
+    });
+
 
     // user collectin 
     app.post('/users', async (req, res) => {
@@ -227,7 +362,7 @@ async function run() {
     app.patch('/adopted/status/:id', async (req, res) => {
       const { status } = req.body;
       const id = req.params.id;
-      if (!status || !['Accepted', 'Rejected'].includes(status)) {
+      if (!status || !['Accepted', 'Rejected',].includes(status)) {
         return res.status(400).send({ message: 'Invalid status value' })
       }
 
@@ -311,9 +446,14 @@ async function run() {
     });
 
     // Cancel adoption request route
-    app.patch('/adopted/status/:id', async (req, res) => {
-      const { id } = req.params;
+    app.patch('/cencell/status/:id', async (req, res) => {
+      const id = req.params.id;
       const { status } = req.body;
+
+      console.log('Updating request with id:', id, 'to status:', status);
+      if (!ObjectId.isValid(id)) {
+        return res.status(400).send({ message: `Invalid request ID ${id}.` });
+      }
 
       try {
         const result = await adoptsCollection.updateOne(
@@ -341,6 +481,78 @@ async function run() {
     })
 
     // donation campaign page
+    // admin routes
+    // Show all donation campaigns (protected route)
+    app.get('/admin/donation-campaigns', verifyToken, verifyAdmin, async (req, res) => {
+      try {
+        const campaigns = await donationsCollection.find().toArray();
+        res.json(campaigns);
+      } catch (error) {
+        res.status(500).json({ message: 'Failed to fetch campaigns' });
+      }
+    });
+
+    // Delete a donation campaign (protected route)
+    app.delete('/admin/donation-campaigns/:id', verifyToken, verifyAdmin, async (req, res) => {
+      const id = req.params.id;
+      if (!ObjectId.isValid(id)) {
+        return res.status(400).send({ error: 'Invalid donation campaign ID' });
+      }
+      try {
+        await donationsCollection.deleteOne({ _id: new ObjectId(id) });
+        res.status(204).send();
+      } catch (error) {
+        res.status(500).send({ message: 'Failed to delete campaign' });
+      }
+    });
+
+    // Edit a donation campaign (protected route)
+    app.put('/admin/donation-campaigns/:id', verifyToken, verifyAdmin, async (req, res) => {
+      const id = req.params.id;
+      const updatedData = req.body;
+      if (!ObjectId.isValid(id)) {
+        return res.status(400).send({ error: 'Invalid donation campaign ID' });
+      }
+      if (!updatedData || Object.keys(updatedData).length === 0) {
+        return res.status(400).send({ error: 'No data provided for update' });
+      }
+      try {
+        const result = await donationsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: updatedData }
+        );
+        if (result.modifiedCount === 0) {
+          return res.status(404).send({ error: 'Campaign not found or no changes made' });
+        }
+        res.status(200).send(result);
+      } catch (error) {
+        res.status(500).send({ error: 'Failed to update campaign' });
+      }
+    });
+
+    // Pause/Unpause a donation campaign (protected route)
+    app.patch('/admin/donation-campaigns/:id/pause', verifyToken, verifyAdmin, async (req, res) => {
+      const id = req.params.id;
+      const { isPaused } = req.body;
+      if (!ObjectId.isValid(id)) {
+        return res.status(400).send({ error: 'Invalid donation campaign ID' });
+      }
+      try {
+        const result = await donationsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { isPaused } }
+        );
+        if (result.matchedCount === 0) {
+          return res.status(404).send({ error: 'Campaign not found' });
+        }
+        res.status(200).send(result);
+      } catch (error) {
+        res.status(500).send({ message: 'Failed to update campaign status', error });
+      }
+    });
+
+    // user routes 
+    // post a campaign 
     app.post('/donation-campaigns', async (req, res) => {
       const campaignData = req.body;
       if (!campaignData) return res.status(400).send({ message: "Campaign data not recieved" })
