@@ -113,6 +113,35 @@ async function run() {
         donations
       })
     })
+
+    app.get('/donations-by-category', async (req, res) => {
+      try {
+        const donationsSummary = await donationsCollection.aggregate([
+          { $unwind: "$donors" },
+          {
+            $group: {
+              _id: "$donors.category",
+              donatedAmount: { $sum: { $toDouble: "$donors.amount" } },
+              donorCount: { $sum: 1 }
+            }
+          },
+          {
+            $project: {
+              _id: 0,
+              category: "$_id",
+              donatedAmount: 1,
+              donorCount: 1
+            }
+          }
+        ]).toArray();
+    
+        res.send(donationsSummary);
+      } catch (error) {
+        console.error('Error fetching donations by category:', error);
+        res.status(500).send('Server error');
+      }
+    });
+    
     
     app.patch('/users/make-admin/:id', verifyToken, verifyAdmin, async (req, res) => {
       const id = req.params.id;
@@ -710,7 +739,7 @@ async function run() {
 
     // update donation 
     app.post("/update-donation", async (req, res) => {
-      const { campaignId, amount, donorName, donorEmail, userEmail, transactionId } = req.body;
+      const { campaignId, amount, donorName, donorEmail, userEmail, transactionId, petCategory } = req.body;
 
       if (!campaignId || !amount || !donorName || !donorEmail || !transactionId) {
         return res.status(400).send({ message: "Required field missing!" });
@@ -728,6 +757,7 @@ async function run() {
                 name: donorName,
                 email: donorEmail,
                 donor: userEmail,
+                petCategory,
                 amount,
                 transactionId,
                 date: new Date()
