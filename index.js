@@ -17,7 +17,8 @@ app.use(cors({
     "http://localhost:5173",
     'https://pet-adoption-f983a.web.app',
     "https://pet-adoption-f983a.firebaseapp.com",
-    "https://shiny-capybara-e3bc6b.netlify.app"
+    "https://shiny-capybara-e3bc6b.netlify.app",
+    "https://violet-egg.surge.sh"
   ],
   credentials:true
 }))
@@ -527,7 +528,7 @@ async function run() {
     });
 
     //adopted return to client user based
-    app.get('/adopted', verifyToken, async (req, res) => {
+    app.get('/adopted', async (req, res) => {
       const email = req.query.email;
       const query = { adopterMail: email }
       const result = await adoptsCollection.find(query).toArray()
