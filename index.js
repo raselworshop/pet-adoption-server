@@ -95,6 +95,25 @@ async function run() {
       res.send({ admin });
     });
 
+    // analytics admin 
+    app.get('/admin-analytics', verifyToken, verifyAdmin, async (req, res) => {
+      const users = await usersCollection.estimatedDocumentCount()
+      const pets = await petsCollection.estimatedDocumentCount()
+      const adopts = await adoptsCollection.estimatedDocumentCount()
+      const donationCount = await donationsCollection.aggregate([
+        { $unwind: "$donors" },
+        {$group: {_id:null, totalAmount:{$sum:{$toDouble: "$donors.amount"}}}}
+      ]).toArray()
+      const donations = donationCount.length>0 ? donationCount[0].totalAmount:0;
+
+      res.send({
+        users,
+        pets,
+        adopts,
+        donations
+      })
+    })
+    
     app.patch('/users/make-admin/:id', verifyToken, verifyAdmin, async (req, res) => {
       const id = req.params.id;
 
