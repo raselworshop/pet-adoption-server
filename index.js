@@ -1,3 +1,4 @@
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const express = require('express')
 const cors = require('cors')
 const jwt = require('jsonwebtoken')
@@ -5,14 +6,21 @@ const { v4: uuidv4 } = require('uuid');
 require('dotenv').config();
 const stripe = require('stripe')(process.env.PAYMENT_GATEWAY_SECRET_KEY)
 const morgan = require('morgan')
-const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 
 const app = express()
 const port = process.env.PORT || 5000;
 
 // middle ware 
 app.use(morgan('tiny'))
-app.use(cors())
+app.use(cors({
+  origin: [
+    "http://localhost:5173",
+    'https://pet-adoption-f983a.web.app',
+    "https://pet-adoption-f983a.firebaseapp.com",
+    "https://shiny-capybara-e3bc6b.netlify.app"
+  ],
+  credentials:true
+}))
 app.use(express.json())
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.5hy3n.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`; //ok
@@ -26,20 +34,10 @@ const client = new MongoClient(uri, {
   }
 });
 
-const checkBan = async (req, res, next) => {
-  const user = await usersCollection.findOne({ email: req.body.email });
-  if (user?.isBanned) {
-    return res.status(403).json({ message: 'Your account has been banned.' });
-  }
-  next();
-};
-module.exports = checkBan;
-
-
 async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
-    await client.connect();
+    // await client.connect();
 
     const db = client.db('pet_adoption')
     const usersCollection = db.collection('users')
@@ -54,7 +52,7 @@ async function run() {
     })
 
     const verifyToken = (req, res, next) => {
-      console.log('inside verify token', req.headers)
+      // console.log('inside verify token', req.headers)
       if (!req.headers.authorization) {
         return res.status(401).send({ message: 'Unauthorized access' })
       }
@@ -80,6 +78,14 @@ async function run() {
       next()
     }
 
+    const checkBan = async (req, res, next) => {
+      const user = await usersCollection.findOne({ email: req.body.email });
+      if (user?.isBanned) {
+        return res.status(403).json({ message: 'Your account has been banned.' });
+      }
+      next();
+    };
+    exports = checkBan;
     // Routes accessible by admins only
     app.get('/users/admin/:email', verifyToken, async (req, res) => {
       const email = req.params.email;
@@ -114,7 +120,7 @@ async function run() {
       })
     })
 
-    app.get('/donations-by-category', async (req, res) => {
+    app.get('/donations-by-category', verifyToken, verifyAdmin, async (req, res) => {
       try {
         const donationsSummary = await donationsCollection.aggregate([
           { $unwind: "$donors" },
@@ -137,7 +143,7 @@ async function run() {
     
         res.send(donationsSummary);
       } catch (error) {
-        console.error('Error fetching donations by category:', error);
+        // console.error('Error fetching donations by category:', error);
         res.status(500).send('Server error');
       }
     });
@@ -162,7 +168,7 @@ async function run() {
 
         res.status(200).send({ message: 'User promoted to admin successfully.' });
       } catch (error) {
-        console.error('Failed to update user role:', error);
+        // console.error('Failed to update user role:', error);
         res.status(500).send({ message: 'Failed to update user role.' });
       }
     });
@@ -181,7 +187,7 @@ async function run() {
 
         res.status(200).send({ message: 'User banned successfully.' });
       } catch (error) {
-        console.error('Failed to ban user:', error);
+        // console.error('Failed to ban user:', error);
         res.status(500).send({ message: 'Failed to ban user.' });
       }
     });
@@ -190,7 +196,7 @@ async function run() {
         const result = await usersCollection.find().toArray();
         res.send(result);
       } catch (err) {
-        console.error(err); res.status(500).send("An error occurred while fetching users.");
+        // console.error(err); res.status(500).send("An error occurred while fetching users.");
       }
     })
     app.patch('/pets/status/:id', verifyToken, async (req, res) => {
@@ -213,7 +219,7 @@ async function run() {
 
         res.status(200).send({ message: 'Pet status updated successfully', result });
       } catch (error) {
-        console.error('Error updating pet status:', error);
+        // console.error('Error updating pet status:', error);
         res.status(500).send({ error: 'Failed to update pet status. Please try again later.' });
       }
     });
@@ -222,7 +228,7 @@ async function run() {
     // user collectin 
     app.post('/users', async (req, res) => {
       const user = req.body;
-      console.log('Received Data:', req.body)
+      // console.log('Received Data:', req.body)
       const query = user.email ? { email: user.email } : { facebookId: user.facebookId };
 
       const isExist = await usersCollection.findOne(query)
@@ -257,7 +263,7 @@ async function run() {
 
         res.send({ message: "Email updated successfully!" });
       } catch (error) {
-        console.error("Error updating email:", error);
+        // console.error("Error updating email:", error);
         res.status(500).send({ message: "Failed to update email!" });
       }
     });
@@ -277,7 +283,7 @@ async function run() {
         const result = await petsCollection.find(filter).sort({ dateAdded: -1 }).skip((page - 1) * limit).limit(Number(limit)).toArray();
         res.send(result);
       } catch (err) {
-        console.error(err); res.status(500).send("An error occurred while fetching pets.");
+        // console.error(err); res.status(500).send("An error occurred while fetching pets.");
 
       }
     })
@@ -289,7 +295,7 @@ async function run() {
       res.status(200).send({ result, message: "Successfully added" })
     })
     //get a pet by id for details data
-    app.get('/pets/:id', async (req, res) => {
+    app.get('/pets/:id', verifyToken, async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) }
       const result = await petsCollection.findOne(query)
@@ -297,7 +303,7 @@ async function run() {
     })
 
     // get pets by user email 
-    app.get('/my-pets/:email', async (req, res) => {
+    app.get('/my-pets/:email', verifyToken, async (req, res) => {
       const email = req.params.email;
       const query = { ownerMail: email }
       const result = await petsCollection.find(query).toArray()
@@ -305,7 +311,7 @@ async function run() {
     })
 
     // update a pet by id
-    app.put('/my-pets/:id', async (req, res) => {
+    app.put('/my-pets/:id', verifyToken, async (req, res) => {
       const id = req.params.id;
       const updatedData = req.body;
 
@@ -329,13 +335,13 @@ async function run() {
 
         res.status(200).send({ message: 'Pet updated successfully', result });
       } catch (error) {
-        console.error('Error updating pet:', error);
+        // console.error('Error updating pet:', error);
         res.status(500).send({ error: 'Failed to update pet. Please try again later.' });
       }
     });
 
     // delete a pet by id
-    app.delete('/my-pets/:id', async (req, res) => {
+    app.delete('/my-pets/:id', verifyToken, async (req, res) => {
       const id = req.params.id;
       const filter = { _id: new ObjectId(id) }
       const result = await petsCollection.deleteOne(filter)
@@ -343,7 +349,7 @@ async function run() {
     })
 
     //status updating
-    app.patch('/my-pets/status/:id', async (req, res) => {
+    app.patch('/my-pets/status/:id', verifyToken, async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) }
       const update = { $set: { isAdopted: true } }
@@ -357,7 +363,7 @@ async function run() {
     // request for adoption 
     app.post('/request-adoption', async (req, res) => {
       const adoptionData = req.body;
-      console.log(adoptionData)
+      // console.log(adoptionData)
       const { petId, adopterName, adopterMail, adopterPhone, adopterAddress } = adoptionData;
       if (!petId || !adopterName || !adopterMail || !adopterPhone || !adopterAddress) {
         return res.status(400).send({ message: 'All fields are required.' });
@@ -381,7 +387,7 @@ async function run() {
         });
 
         if (existingRequest) {
-          console.log(`User ${adopterMail} already has a pending request for pet ${pet.petName}`);
+          // console.log(`User ${adopterMail} already has a pending request for pet ${pet.petName}`);
 
           return res.status(400).send({ message: 'You have already requested to adopt this pet.' });
         }
@@ -401,13 +407,13 @@ async function run() {
         const result = await adoptsCollection.insertOne(adoptionRequ)
         res.status(201).send({ message: 'Adoption request succussfull', result })
       } catch (error) {
-        console.error('Error processing adoption request:', error);
+        // console.error('Error processing adoption request:', error);
         res.status(500).send({ message: 'Failed to process adoption request.', error });
       }
     })
 
     // requested adoption status changer
-    app.patch('/adopted/status/:id', async (req, res) => {
+    app.patch('/adopted/status/:id', verifyToken, async (req, res) => {
       const { status } = req.body;
       const id = req.params.id;
       if (!status || !['Accepted', 'Rejected',].includes(status)) {
@@ -428,16 +434,16 @@ async function run() {
         }
         res.status(200).send({ message: `Adoption request ${status.toLowerCase()} successfully` })
       } catch (error) {
-        console.error('Error updating adoption status:', error);
+        // console.error('Error updating adoption status:', error);
         res.status(500).send({ message: 'Failed to update adoption status.' });
       }
     })
 
     // from user to owner request 
-    app.get('/adoptRequests/byOwnerMail/:posterEmail', async (req, res) => {
+    app.get('/adoptRequests/byOwnerMail/:posterEmail', verifyToken, async (req, res) => {
       const { posterEmail } = req.params;
-      console.log('Full query object:', req.params);
-      console.log('posterEmail: ', posterEmail);
+      // console.log('Full query object:', req.params);
+      // console.log('posterEmail: ', posterEmail);
 
       if (!posterEmail) {
         return res.status(400).send({ message: 'Poster email is required.' });
@@ -452,10 +458,10 @@ async function run() {
         }
 
         const petIds = postedPets.map(pet => pet._id.toString());
-        console.log('petIds: ', petIds);
+        // console.log('petIds: ', petIds);
 
         const requests = await adoptsCollection.find({ petId: { $in: petIds } }).toArray();
-        console.log('requests: ', requests);
+        // console.log('requests: ', requests);
 
         if (requests.length === 0) {
           return res.status(404).send({ message: 'No adoption requests found for pets posted by this user.' });
@@ -463,16 +469,16 @@ async function run() {
 
         res.status(200).send(requests);
       } catch (error) {
-        console.error('Failed to fetch adoption requests:', error);
+        // console.error('Failed to fetch adoption requests:', error);
         res.status(500).send({ message: 'Failed to fetch adoption requests.', error });
       }
     });
 
     // user requested pets list 
-    app.get('/adopted/requests/:userEmail', async (req, res) => {
+    app.get('/adopted/requests/:userEmail', verifyToken, async (req, res) => {
       const email = req.params.userEmail;
-      console.log('Full query object:', req.params);
-      console.log('email:', email);
+      // console.log('Full query object:', req.params);
+      // console.log('email:', email);
 
       if (!email) {
         return res.status(400).send({ message: 'Email is required' });
@@ -488,17 +494,17 @@ async function run() {
 
         res.status(200).send(requests);
       } catch (error) {
-        console.error('Failed to fetch adoption requests:', error);
+        // console.error('Failed to fetch adoption requests:', error);
         res.status(500).send({ message: 'Failed to fetch adoption requests.', error });
       }
     });
 
     // Cancel adoption request route
-    app.patch('/cencell/status/:id', async (req, res) => {
+    app.patch('/cencell/status/:id', verifyToken, async (req, res) => {
       const id = req.params.id;
       const { status } = req.body;
 
-      console.log('Updating request with id:', id, 'to status:', status);
+      // console.log('Updating request with id:', id, 'to status:', status);
       if (!ObjectId.isValid(id)) {
         return res.status(400).send({ message: `Invalid request ID ${id}.` });
       }
@@ -515,13 +521,13 @@ async function run() {
 
         res.status(200).send({ message: 'Request status updated successfully.' });
       } catch (error) {
-        console.error('Failed to update request status:', error);
+        // console.error('Failed to update request status:', error);
         res.status(500).send({ message: 'Failed to update request status.', error });
       }
     });
 
     //adopted return to client user based
-    app.get('/adopted', async (req, res) => {
+    app.get('/adopted', verifyToken, async (req, res) => {
       const email = req.query.email;
       const query = { adopterMail: email }
       const result = await adoptsCollection.find(query).toArray()
@@ -608,7 +614,7 @@ async function run() {
         const result = await donationsCollection.insertOne(campaignData)
         res.status(201).send(result)
       } catch (error) {
-        console.log('Error creating campaign', error)
+        // console.log('Error creating campaign', error)
         res.status(500).send({ message: 'Failed to create campaign' })
       }
     })
@@ -651,7 +657,7 @@ async function run() {
     })
 
     // update donation using id 
-    app.put('/donation-campaigns/:id', async (req, res) => {
+    app.put('/donation-campaigns/:id', verifyToken, async (req, res) => {
       const id = req.params.id;
       const updatedData = req.body;
 
@@ -675,13 +681,13 @@ async function run() {
 
         res.status(200).send(result);
       } catch (error) {
-        console.error('Error updating camp:', error);
+        // console.error('Error updating camp:', error);
         res.status(500).send({ error: 'Failed to update camp. Please try again later.' });
       }
     });
 
     //get campaign by user email
-    app.get('/my-donation-campaigns/:email', async (req, res) => {
+    app.get('/my-donation-campaigns/:email', verifyToken, async (req, res) => {
       const email = req.params.email;
       const query = { ownerMail: email }
       if (!query) {
@@ -696,7 +702,7 @@ async function run() {
     })
 
     //pause/unpause campaign
-    app.patch('/donation-campaign/pause/:id', async (req, res) => {
+    app.patch('/donation-campaign/pause/:id', verifyToken, async (req, res) => {
       const id = req.params.id;
       const { isPaused } = req.body;
       const filter = { _id: new ObjectId(id) }
@@ -708,7 +714,7 @@ async function run() {
         }
         res.status(200).send(result)
       } catch (error) {
-        console.log('eror from status route')
+        // console.log('eror from status route')
         res.status(500).send({ message: "Error updating campaign", error })
       }
     })
@@ -732,7 +738,7 @@ async function run() {
           message: "client secret created successfully!"
         })
       } catch (error) {
-        console.error("Error creating payment intent:", error);
+        // console.error("Error creating payment intent:", error);
         res.status(500).send({ message: "Failed to create payment intent!" });
       }
     })
@@ -772,15 +778,15 @@ async function run() {
 
         res.status(200).send({ message: "Donation updated successfully!" });
       } catch (error) {
-        console.error("Error updating donation:", error);
+        // console.error("Error updating onation:", error);
         res.status(500).send({ message: "An error occurred during donation update." });
       }
     });
 
     //get user donation
-    app.get('/donors/campaigns', async (req, res) => {
+    app.get('/donors/campaigns', verifyToken, async (req, res) => {
       const { email } = req.query;
-      console.log("Email from donation query", email)
+      // console.log("Email from donation query", email)
 
       if (!email) {
         return res.status(400).send({ message: "Email is required" })
@@ -824,13 +830,13 @@ async function run() {
 
         res.send(result)
       } catch (error) {
-        console.log(error)
+        // console.log(error)
         res.status(500).send({ message: " Error fetching donation", error })
       }
     })
 
     // make a refund
-    app.post('/donors/refund', async (req, res) => {
+    app.post('/donors/refund', verifyToken, async (req, res) => {
       const { id, email } = req.body;
       if (!id || !email) {
         return res.status(400).send({ message: "CAmpId and email are required!" })
@@ -852,7 +858,7 @@ async function run() {
         }
         res.send({ message: "Refund processed successfully", amount })
       } catch (error) {
-        console.log("Thw issue is from refund rout", error)
+        // console.log("Thw issue is from refund rout", error)
         res.status(500).send({ message: "error proccessing refund" })
       }
     })
