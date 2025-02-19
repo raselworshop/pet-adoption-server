@@ -278,13 +278,13 @@ async function run() {
         filter.petName = new RegExp(search, 'i')
       }
       if (category) {
-        filter.petCategory = category
+        filter.petCategory = new RegExp(`^${category}$`, 'i')
       }
       try {
         const result = await petsCollection.find(filter).sort({ dateAdded: -1 }).skip((page - 1) * limit).limit(Number(limit)).toArray();
         res.send(result);
       } catch (err) {
-        // console.error(err); res.status(500).send("An error occurred while fetching pets.");
+        console.error(err); res.status(500).send("An error occurred while fetching pets.");
 
       }
     })
@@ -817,14 +817,7 @@ async function run() {
                   }
                 }, 0]
               }
-              // giving arrays need to update
-              // donors:{
-              //   $filter: {
-              //     input:'$donors',
-              //     as:'donor',
-              //     cond:{$eq:[ '$$donor.email', email]}
-              //   }
-              // }
+    
             }
           }
         ]).toArray();
