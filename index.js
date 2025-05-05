@@ -88,8 +88,8 @@ async function run() {
       if (!email) {
         return res.status(400).json({ message: "Email is required" });
       }
-      const user = await usersCollection.findOne({ email: req.body.email });
-      if (user?.isBanned) {
+      const user = await usersCollection.findOne({ email });
+      if (user?.banned) {
         return res
           .status(403)
           .json({ message: "Your account has been banned." });
@@ -311,7 +311,7 @@ async function run() {
     });
 
     // Fetch user data by email
-app.get('/api/user/:email', verifyToken, async (req, res) => {
+app.get('/api/user/:email', verifyToken, checkBan, async (req, res) => {
   const email = req.params.email;
   if (email !== req.decoded.email) {
     return res.status(403).send({ message: 'Forbidden access' });
@@ -332,7 +332,7 @@ app.get('/api/user/:email', verifyToken, async (req, res) => {
 });
 
 // Update user profile
-app.post('/api/update-profile', verifyToken, async (req, res) => {
+app.post('/api/update-profile', verifyToken, checkBan, async (req, res) => {
   const { name, email, photo, userName } = req.body;
   if (!email || !name || !userName) {
     return res.status(400).send({ message: 'Name, email, and username are required' });
