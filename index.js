@@ -331,6 +331,32 @@ app.get('/api/user/:email', verifyToken, async (req, res) => {
   }
 });
 
+// Update user profile
+app.post('/api/update-profile', verifyToken, async (req, res) => {
+  const { name, email, photo, userName } = req.body;
+  if (!email || !name || !userName) {
+    return res.status(400).send({ message: 'Name, email, and username are required' });
+  }
+  if (email !== req.decoded.email) {
+    return res.status(403).send({ message: 'Forbidden access' });
+  }
+  try {
+    const result = await usersCollection.updateOne(
+      { email },
+      { $set: { name, email, photo, userName } },
+      { upsert: true }
+    );
+    if (result.matchedCount === 0 && result.upsertedCount === 0) {
+      return res.status(404).send({ message: 'User not found' });
+    }
+    res.send({ message: 'Profile updated successfully' });
+  } catch (error) {
+    console.error('Error updating profile:', error);
+    res.status(500).send({ message: 'Failed to update profile' });
+  }
+});
+
+
     // all pets
     app.get("/pets", async (req, res) => {
       const { search, category, page = 1, limit = 10 } = req.query;
