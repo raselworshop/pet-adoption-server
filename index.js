@@ -310,6 +310,27 @@ async function run() {
       }
     });
 
+    // Fetch user data by email
+app.get('/api/user/:email', verifyToken, async (req, res) => {
+  const email = req.params.email;
+  if (email !== req.decoded.email) {
+    return res.status(403).send({ message: 'Forbidden access' });
+  }
+  try {
+    const user = await usersCollection.findOne({ email });
+    if (!user) {
+      return res.status(404).send({ message: 'User not found' });
+    }
+    res.send({
+      userName: user.userName,
+      role: user.role,
+    });
+  } catch (error) {
+    console.error('Error fetching user:', error);
+    res.status(500).send({ message: 'Failed to fetch user data' });
+  }
+});
+
     // all pets
     app.get("/pets", async (req, res) => {
       const { search, category, page = 1, limit = 10 } = req.query;
